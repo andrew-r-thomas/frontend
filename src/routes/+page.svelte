@@ -8,7 +8,7 @@
 	const servers = {
 		iceServers: [
 			{
-				urls: ['stun3.l.google.com:19302', 'stun4.l.google.com:19302']
+				urls: ['stun:stun3.l.google.com:19302', 'stun:stun4.l.google.com:19302']
 			}
 		],
 		iceCandidatePoolSize: 10
