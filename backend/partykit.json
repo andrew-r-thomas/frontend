@@ -1,0 +1,9 @@
+{
+  "name": "webrtcdemo",
+  "main": "src/server.ts",
+  "compatibilityDate": "2023-11-01",
+  "serve": {
+    "path": "public",
+    "build": "src/client.ts"
+  }
+}
