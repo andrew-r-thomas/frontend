@@ -8,7 +8,7 @@
 	const servers = {
 		iceServers: [
 			{
-				urls: ['stun:stun1.l.google.com:19302', 'stun:stun2.l.google.com:19302']
+				urls: ['stun3.l.google.com:19302', 'stun4.l.google.com:19302']
 			}
 		],
 		iceCandidatePoolSize: 10
@@ -42,6 +42,7 @@
 		localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 		localStream.getTracks().forEach((t) => pc?.addTrack(t, localStream!));
 		localVideo.srcObject = localStream;
+		localVideo.muted = true;
 
 		remoteStream = new MediaStream();
 		pc!.ontrack = (e) => {
@@ -55,101 +56,90 @@
 	const startCall = async () => {
 		callId = nanoid();
 		partySocket = new PartySocket({
-			host: 'localhost:1999',
+			host: 'webrtcdemo.andrew-r-thomas.partykit.dev',
 			room: callId
 		});
 
 		pc!.onicecandidate = (e) => {
 			e.candidate &&
 				partySocket?.send(
-					JSON.stringify({ type: 'offer candidate', offerCandidate: e.candidate.toJSON() })
+					JSON.stringify({
+						type: 'offer candidate',
+						data: e.candidate.toJSON() satisfies OfferCandidate
+					} satisfies Message)
 				);
 		};
 
 		const offerDescription = await pc!.createOffer();
 		await pc?.setLocalDescription(offerDescription);
 
-		const offer = {
-			sdb: offerDescription.sdp,
-			type: offerDescription.type
-		};
-		console.log(offer);
+		partySocket.send(
+			JSON.stringify({
+				type: 'offer',
+				data: { sdp: offerDescription.sdp!, type: offerDescription.type } satisfies Offer
+			} satisfies Message)
+		);
 
-		partySocket.send(JSON.stringify({ type: 'offer', offer: offer }));
-
-		handleCallerMessages();
-	};
-
-	const handleCallerMessages = () => {
 		partySocket?.addEventListener('message', (msg) => {
-			const message = JSON.parse(msg.data);
-			console.log(message);
+			const message: Message = JSON.parse(msg.data);
 
 			if (message.type === 'answer') {
-				console.log('its an answer');
 				if (!pc!.currentRemoteDescription) {
-					const answerDescription = new RTCSessionDescription(message.answer);
+					const answerDescription = new RTCSessionDescription(message.data as Answer);
 					pc!.setRemoteDescription(answerDescription);
 				}
 			}
 			if (message.type === 'answer candidate') {
-				console.log('its an answer candidate');
-				console.log(message.answerCandidate);
-				const candidate = new RTCIceCandidate(message.answerCandidate);
+				const candidate = new RTCIceCandidate(message.data as AnswerCandidate);
 				pc!.addIceCandidate(candidate);
 			}
 		});
 	};
 
 	const joinCall = async () => {
-		console.log('tried to join call');
 		partySocket = new PartySocket({
-			host: 'localhost:1999',
+			host: 'webrtcdemo.andrew-r-thomas.partykit.dev',
 			room: callId!
 		});
 
 		pc!.onicecandidate = (e) => {
 			e.candidate &&
 				partySocket?.send(
-					JSON.stringify({ type: 'answer candidate', answerCandidate: e.candidate.toJSON() })
+					JSON.stringify({
+						type: 'answer candidate',
+						data: e.candidate.toJSON() satisfies AnswerCandidate
+					} satisfies Message)
 				);
 		};
 
-		// TODO switch to https for deployment, also huge security issue here lol, but this is just for demo so thats ok
 		const offerResp = await PartySocket.fetch(
-			{ host: 'localhost:1999', room: callId! },
+			{ host: 'webrtcdemo.andrew-r-thomas.partykit.dev', room: callId! },
 			{
 				method: 'GET'
 			}
 		);
-		const offerDescription = await offerResp.json();
-
-		// TODO make some damn types
-		await pc?.setRemoteDescription({
-			sdp: offerDescription.sdb,
-			type: offerDescription.type
-		});
+		const offerDescription: Offer = await offerResp.json();
+		await pc?.setRemoteDescription(offerDescription);
 
 		const answerDescription = await pc?.createAnswer();
 		await pc?.setLocalDescription(answerDescription);
 
 		const answer = {
-			type: answerDescription?.type,
-			sdp: answerDescription?.sdp
+			type: answerDescription!.type,
+			sdp: answerDescription!.sdp!
 		};
 
-		partySocket.send(JSON.stringify({ type: 'answer', answer: answer }));
+		partySocket.send(
+			JSON.stringify({ type: 'answer', data: answer satisfies Answer } satisfies Message)
+		);
 
 		partySocket.addEventListener('message', (msg) => {
 			const message = JSON.parse(msg.data);
-			console.log(message);
 
 			if (message.type === 'offer candidate') {
-				pc?.addIceCandidate(new RTCIceCandidate(message.offerCandidate));
+				pc?.addIceCandidate(new RTCIceCandidate(message.data as OfferCandidate));
 			}
 		});
-
-		// when we listen for the offer candidate, we need to store that in the room and recognize when we need to send it to a client -> this happens on server
 	};
 </script>
 
@@ -157,7 +147,13 @@
 	<h1 class="text-4xl font-bold">PartyKit WebRTC Demo</h1>
 	<div class="flex flex-row space-x-12 w-full">
 		<!-- svelte-ignore a11y-media-has-caption -->
-		<video id="localvideo" class="rounded-lg w-1/2" autoplay playsinline bind:this={localVideo} />
+		<video
+			id="localvideo"
+			class="rounded-lg w-1/2 bg-slate-100"
+			autoplay
+			playsinline
+			bind:this={localVideo}
+		/>
 		<!-- svelte-ignore a11y-media-has-caption -->
 		<video
 			id="remotevideo"
